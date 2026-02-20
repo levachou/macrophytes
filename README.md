@@ -31,6 +31,7 @@ Google Earth Engine
 
 A registered GEE account (free at earthengine.google.com)
 Sentinel-2 Surface Reflectance image collection
+Here is the link to GEE repo - https://code.earthengine.google.com/e1aabf878d2e46b1bcf199430e993d2a
 
 R (version 4.0 or higher)
 rinstall.packages(c("readr", "sf", "ggplot2", "dplyr", 

@@ -1,9 +1,7 @@
-macrophytes
-
 Large-scale spatial and temporal patterns of aquatic macrophytes using Google Earth Engine workflow
 This repository contains all code, data, and outputs associated with the paper:
 
-Levachou, S. & Stonevičius, E. (in review). Large-scale spatial and temporal patterns of aquatic macrophytes using Google Earth Engine workflow. [Journal name]. DOI: [to be added upon publication]
+Levachou, S. & Stonevičius, E. (in review). Large-scale spatial and temporal patterns of aquatic macrophytes using Google Earth Engine workflow.
 
 
 Overview
@@ -12,8 +10,7 @@ This repository provides a fully reproducible workflow for mapping and analysing
 Repository Structure
 macrophytes/
 │
-├── GEE/
-│   └── macrophyte_classification.js    # Google Earth Engine workflow
+├── GEE                                 # Google Earth Engine workflow
 │
 ├── R/
 │   ├── structural_typology.R           # Coverage-based spatial typology (Rse)
@@ -31,7 +28,7 @@ Google Earth Engine
 
 A registered GEE account (free at earthengine.google.com)
 Sentinel-2 Surface Reflectance image collection
-Here is the link to GEE repo - https://code.earthengine.google.com/e1aabf878d2e46b1bcf199430e993d2a
+Here is the link to GEE repo - https://code.earthengine.google.com/fce33cdd64916ddfe823670103724690
 
 R (version 4.0 or higher)
 rinstall.packages(c("readr", "sf", "ggplot2", "dplyr", 
@@ -51,7 +48,7 @@ The dataset covers 173 lakes and reservoirs in the Nemunas River basin across ei
 Citation
 If you use this code or data, please cite:
 
-Levachou, S. & Stonevičius, E. (in review). Large-scale spatial and temporal patterns of aquatic macrophytes using Google Earth Engine workflow. DOI: [to be added]
+Levachou, S. & Stonevičius, E. (in review). Large-scale spatial and temporal patterns of aquatic macrophytes using Google Earth Engine workflow.
 
 
 License

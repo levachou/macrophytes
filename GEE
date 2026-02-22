@@ -1,1 +1,171 @@
+/* Macrophyte Classification — Nemunas River Basin
+ *
+ * Description: Phenology-based classification of emergent (EM), submerged and
+ *              floating (SFM) macrophytes, and open water using seasonal
+ *              Sentinel-2 NIR (B8) reflectance thresholds. The classification
+ *              logic and thresholds were developed and validated in:
+ *
+ * Inputs:   Sentinel-2 Surface Reflectance Harmonized (COPERNICUS/S2_SR_HARMONIZED)
+ *           Waterbody polygons uploaded as a GEE asset
+ *
+ * Outputs:  CSV file exported to Google Drive with per-waterbody area (m²)
+ *           for each macrophyte class and open water
+ *
+ * Thresholds (surface reflectance × 10000):
+ *           Primary windows:     May (B8 ≥ 630), July (B8 ≥ 660)
+ *           Alternative windows: April (B8 ≥ 490), August (B8 ≥ 720),
+ *                                September (B8 ≥ 330)
+ *           Alternative thresholds were calibrated to address cloud cover
+ *           limitations in the study region (Lithuania and Belarus).
+ *
+ * Note:     Cloud filtering parameters (CLOUDY_PIXEL_PERCENTAGE) were adjusted
+ *           per waterbody during image selection to maximise data availability
+ *           under persistently cloudy conditions. The value below (5%) represents
+ *           the strictest setting used. Increase this value if insufficient
+ *           imagery is available for your study area or time period.
+ *
+ */
 
+// ── 1. STUDY AREA ─────────────────────────────────────────────────────────────
+
+var geometry = ee.FeatureCollection('projects/ee-yahorlevachou/assets/Nemunas_174');
+
+// ── 2. SETTINGS ───────────────────────────────────────────────────────────────
+
+// Set the year of interest
+var year = 2021;
+
+// Primary temporal windows (adjust if switching to alternative months)
+var startMay = year + '-05-10';
+var endMay   = year + '-05-30';
+var startJul = year + '-07-01';
+var endJul   = year + '-07-30';
+
+// NIR reflectance thresholds (× 10000, Sentinel-2 SR units)
+var thresholdMay = 630;  // May threshold for emergent macrophyte detection
+var thresholdJul = 660;  // July threshold for submerged/floating detection
+
+// ── 3. CLOUD MASKING ──────────────────────────────────────────────────────────
+
+// Pixel-level cloud mask using QA60 band
+var applyCloudMask = function(image) {
+  var cloudMask = image.select(['QA60']).lt(1);
+  return image.updateMask(cloudMask);
+};
+
+// Scene-level filtering and pixel-level masking
+var getCloudFreeCollection = function(startDate, endDate, geometry) {
+  return ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+    .filterBounds(geometry)
+    .filterDate(startDate, endDate)
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 5))
+    .map(applyCloudMask);
+};
+
+// ── 4. IMAGE COLLECTIONS ──────────────────────────────────────────────────────
+
+var imageCollectionMay = getCloudFreeCollection(startMay, endMay, geometry);
+var imageCollectionJul = getCloudFreeCollection(startJul, endJul, geometry);
+
+// Create seasonal composites by mosaicking selected scenes
+var imageMay = imageCollectionMay.select(['B4', 'B3', 'B2', 'B8']).mosaic().clip(geometry);
+var imageJul = imageCollectionJul.select(['B4', 'B3', 'B2', 'B8']).mosaic().clip(geometry);
+
+// Attach acquisition dates as image properties for traceability
+var getDates = function(collection) {
+  return ee.List(collection.aggregate_array('system:time_start')).map(function(date) {
+    return ee.Date(date).format('YYYY-MM-dd');
+  });
+};
+
+imageMay = imageMay.set('dates', getDates(imageCollectionMay));
+imageJul = imageJul.set('dates', getDates(imageCollectionJul));
+
+// ── 5. CLASSIFICATION ─────────────────────────────────────────────────────────
+
+/*
+ * Classification logic (Levachou & Stonevičius, 2025):
+ *   Emergent macrophytes (EM):            NIR_May ≥ threshold
+ *   Submerged/floating macrophytes (SFM): NIR_May < threshold AND NIR_Jul ≥ threshold
+ *   Open water (OW):                      NIR_May < threshold AND NIR_Jul < threshold
+ */
+var classifySurface = function(imageMay, imageJul) {
+  var NIRMay = imageMay.select(['B8']).gte(thresholdMay);
+  var NIRJul = imageJul.select(['B8']).gte(thresholdJul);
+
+  var EM  = NIRMay;
+  var SFM = NIRMay.not().and(NIRJul);
+  var OW  = NIRMay.not().and(NIRJul.not());
+
+  return ee.Image(0)
+    .where(EM,  1)  // 1 = Emergent macrophytes
+    .where(SFM, 2)  // 2 = Submerged and floating macrophytes
+    .where(OW,  3)  // 3 = Open water
+    .rename('SurfaceClassification')
+    .clip(geometry)
+    .set('datesMay', imageMay.get('dates'))
+    .set('datesJul', imageJul.get('dates'));
+};
+
+var classifiedImage = classifySurface(imageMay, imageJul);
+
+// ── 6. VISUALISATION ──────────────────────────────────────────────────────────
+
+Map.addLayer(imageMay, {bands: ['B4', 'B3', 'B2'], max: 3000}, 'May composite');
+Map.addLayer(imageJul, {bands: ['B4', 'B3', 'B2'], max: 3000}, 'July composite');
+Map.addLayer(
+  classifiedImage.select('SurfaceClassification'),
+  {min: 1, max: 3, palette: ['#6aa84f', '#f1c232', '003366']},
+  'Macrophyte classification'
+);
+
+// Print acquisition dates for verification
+print('May composite dates:', imageMay.get('dates'));
+print('July composite dates:', imageJul.get('dates'));
+
+// ── 7. AREA CALCULATION ───────────────────────────────────────────────────────
+
+// Calculate per-class pixel area for each waterbody using a single reduction
+var calculateAreaByClass = function(feature) {
+  var pixelArea = ee.Image.pixelArea();
+
+  var calcArea = function(classValue) {
+    return classifiedImage.select('SurfaceClassification')
+      .eq(classValue)
+      .multiply(pixelArea)
+      .reduceRegion({
+        reducer: ee.Reducer.sum(),
+        geometry: feature.geometry(),
+        scale: 10,
+        maxPixels: 1e9
+      }).get('SurfaceClassification');
+  };
+
+  var datesMay = ee.List(imageCollectionMay
+    .filterBounds(feature.geometry())
+    .aggregate_array('system:time_start'))
+    .map(function(d) { return ee.Date(d).format('YYYY-MM-dd'); });
+
+  var datesJul = ee.List(imageCollectionJul
+    .filterBounds(feature.geometry())
+    .aggregate_array('system:time_start'))
+    .map(function(d) { return ee.Date(d).format('YYYY-MM-dd'); });
+
+  return feature.set({
+    'EMArea':  calcArea(1),   // Emergent macrophyte area (m²)
+    'SFMArea': calcArea(2),   // Submerged/floating macrophyte area (m²)
+    'OWArea':  calcArea(3),   // Open water area (m²)
+    'DatesMay': datesMay,
+    'DatesJul': datesJul
+  });
+};
+
+var areaByClass = geometry.map(calculateAreaByClass);
+
+// ── 8. EXPORT ─────────────────────────────────────────────────────────────────
+
+Export.table.toDrive({
+  collection: areaByClass,
+  description: 'MacrophytesArea_' + year,
+  fileFormat: 'CSV'
+});

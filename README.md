@@ -10,18 +10,25 @@ This repository provides a fully reproducible workflow for mapping and analysing
 Repository Structure
 macrophytes/
 │
-├── GEE                                 # Google Earth Engine workflow
+├── GEE                                 
+|   └── macrophyte_classification.js    # Google Earth Engine workflow
 │
 ├── R/
-│   ├── structural_typology.R           # Coverage-based spatial typology (Rse)
-│   └── temporal_typology.R             # Temporal regime classification
+│   ├── Typology_structural.R           # Coverage-based spatial typology (Rse)
+│   └── Typology_dynamic.R              # Temporal regime classification
 │
 ├── data/
-│   ├── NRB_MacroPerCents.csv           # Macrophyte coverage data (2017–2024)
-│   └── waterbodies.shp                 # Waterbody polygons (Nemunas basin)
+│   ├── cover_abs.csv                   # Macrophyte cover data in m2 for 173 waterbodies (2017–2024)
+|   ├── cover_pct.csv                   # Macrophyte cover data in percents for 173 waterbodies (2017–2024)
+|   ├── cover_pct_change.csv            # Change of macrophyte cover data in percents for 55 waterbodies (2017–2024)
+│   ├── waterbodies_xy.csv              # Waterbody points coordinates
+|   ├── HyBasNeman.shp                  # Bassin polygon
+|   └── Nemunas.shp                     # Polygons of waterbodies (173)
 │
 └── figures/
-    └── dynamic_regimes.png             # Temporal regime scatter plot
+    ├── Macrophyte typology Rse.png    
+    ├── typology dynamic map.png
+    └── Typology_dyn_fig.png
 
 Requirements
 Google Earth Engine

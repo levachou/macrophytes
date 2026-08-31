@@ -58,7 +58,7 @@ Macro_change$sd_dSM <- apply(Macro_change[, paste0("dSM", 18:24)], 1, sd, na.rm 
 # ── 4. CLASSIFICATION THRESHOLDS ──────────────────────────────────────────────
 
 # Threshold for total cover change: separates weak from substantial change
-# Determined iteratively; sensitivity analysis confirmed stability across ±25% variation
+# Sensitivity analysis confirmed stability across ±25% variation
 eps_mac    <- 0.15   # % per year — total macrophyte cover change
 
 # Threshold for structural shift: detects directional shifts between vegetation types

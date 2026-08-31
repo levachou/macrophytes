@@ -56,9 +56,10 @@ ggplot(Macro, aes(x = Rse))      + geom_density() + ggtitle("Structural ratio in
 
 # ── 5. CLASSIFY STRUCTURAL TYPES ──────────────────────────────────────────────
 
-# Thresholds determined iteratively based on distributional properties
-# and ecological interpretability of resulting groups
-# Sensitivity analysis confirmed stability across ±25% threshold variation
+# Boundaries set at the 25 and 75 percentiles of the Rse distribution
+# (0.60 and 1.29, rounded to 0.6 and 1.3). See section 9 for derivation and
+# sensitivity analysis. 
+
 Macro$type_Rse <- NA
 Macro$type_Rse[Macro$Rse < 0.6]                      <- "Emergent-dominated"
 Macro$type_Rse[Macro$Rse >= 0.6 & Macro$Rse <= 1.3] <- "No dominance"
@@ -144,3 +145,83 @@ res_Rse  <- resid(lm(Rse  ~ S_m2, data = cor_data))
 res_RD05 <- resid(lm(RD05 ~ S_m2, data = cor_data))
 
 cor.test(res_Rse, res_RD05, method = "spearman")
+
+# ── 9. THRESHOLD DERIVATION AND SENSITIVITY ───────────────────────────────────
+# The Rse distribution is unimodal and continuous, without natural breaks, so
+# class boundaries were set at the 25 and 75 percentiles of the observed
+# distribution and rounded.
+
+# Derivation: empirical percentiles of Rse
+quantile(Macro$Rse, c(0.25, 0.75), na.rm = TRUE)   # -> 0.60 and 1.29, rounded to 0.6 and 1.3
+
+# Classification function with adjustable boundaries
+classify <- function(x, lo, hi) {
+  cut(x, breaks = c(-Inf, lo, hi, Inf),
+      labels = c("Emergent-dominated", "No dominance", "Submerged-dominated"))
+}
+
+base <- classify(Macro$Rse, 0.6, 1.3)
+table(base)
+
+# Sensitivity: shift both boundaries by a common factor
+sens <- data.frame(shift = c(-25, -10, 10, 25)) %>%
+  mutate(
+    lo    = 0.6 * (1 + shift / 100),
+    hi    = 1.3 * (1 + shift / 100),
+    same  = mapply(function(a, b) sum(classify(Macro$Rse, a, b) == base, na.rm = TRUE), lo, hi),
+    pct   = round(100 * same / sum(!is.na(base)), 1)
+  )
+print(sens)
+
+# Does the wide "No dominance" class hide a gradient in total cover?
+mid <- Macro[base == "No dominance", ]
+wilcox.test(mac_mean ~ Rse > median(Rse), data = mid)
+
+
+# ── 10. SPATIAL AUTOCORRELATION ───────────────────────────────────────────────
+# Neighbouring waterbodies share catchment and climatic conditions, so they are
+# not independent samples. This section tests for spatial autocorrelation in the
+# structural ratio index and refits the morphometric model with a spatially
+# explicit error structure.
+library(nlme)
+
+pts <- morf_xy %>%
+  filter(!is.na(Rse), !is.na(RD05), !is.na(S_m2)) %>%
+  as.data.frame()
+
+# Project lon/lat to kilometres so distances and the range parameter are on a
+# physical scale. Small jitter breaks the zero distances caused by duplicated
+# centroids (fid 128/148, 147/157, 131/152 — coordinates to be corrected).
+set.seed(1)
+lat0   <- mean(pts$Y)
+pts$xk <- pts$X * 111.32 * cos(lat0 * pi / 180) + rnorm(nrow(pts), 0, 0.1)
+pts$yk <- pts$Y * 110.57                        + rnorm(nrow(pts), 0, 0.1)
+
+# Moran's I on k-nearest-neighbour weights, permutation test
+moran_knn <- function(v, x, y, k = 5, nsim = 999) {
+  D <- as.matrix(dist(cbind(x, y)))
+  W <- t(apply(D, 1, function(d) {
+    w <- as.numeric(rank(d, ties.method = "first") %in% 2:(k + 1)); w / sum(w)
+  }))
+  I   <- function(z) { z <- z - mean(z); sum(z * (W %*% z)) / sum(z^2) }
+  obs <- I(v)
+  sim <- replicate(nsim, I(sample(v)))
+  c(I = obs, p = (sum(abs(sim) >= abs(obs)) + 1) / (nsim + 1))
+}
+
+# 1. Is the index itself clustered?
+moran_knn(pts$Rse, pts$xk, pts$yk)
+
+# 2. Non-spatial model, and autocorrelation in its residuals
+m_ols <- gls(Rse ~ RD05 + I(S_m2/1e6), data = pts, method = "ML")
+summary(m_ols)
+moran_knn(residuals(m_ols), pts$xk, pts$yk)
+
+# 3. Spatially explicit model: exponential correlation with a nugget
+m_sp <- gls(Rse ~ RD05 + I(S_m2/1e6), data = pts, method = "ML",
+            correlation = corExp(value = c(40, 0.5), form = ~ xk + yk, nugget = TRUE))
+
+anova(m_ols, m_sp)                                       # is the spatial model better?
+coef(m_sp$modelStruct$corStruct, unconstrained = FALSE)  # range (km) and nugget
+summary(m_sp)
+moran_knn(residuals(m_sp, type = "normalized"), pts$xk, pts$yk)   # autocorrelation removed?
